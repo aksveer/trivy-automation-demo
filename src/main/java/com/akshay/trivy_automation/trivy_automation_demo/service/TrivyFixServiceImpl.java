@@ -2,30 +2,26 @@ package com.akshay.trivy_automation.trivy_automation_demo.service;
 
 import com.akshay.trivy_automation.trivy_automation_demo.dto.TrivyReport;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.DependencyManagement;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import org.kohsuke.github.GHPullRequest;
-import org.kohsuke.github.GHRepository;
-import org.kohsuke.github.GitHub;
-import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
-import java.util.stream.Stream;
 
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class TrivyFixServiceImpl implements TrivyFixService{
 
     private static final Set<String> SEVERITIES = Set.of("HIGH", "CRITICAL");
@@ -33,6 +29,21 @@ public class TrivyFixServiceImpl implements TrivyFixService{
     private static final String PR_TITLE = "chore: fix HIGH & CRITICAL Maven vulnerabilities";
     private static final String PR_BODY =
             "This PR was auto-generated to fix HIGH and CRITICAL Maven vulnerabilities detected by Trivy.";
+    public static final String POM_XML = "pom.xml";
+
+    private final String owner;
+
+    private final String repoName;
+
+    private final String token;
+
+    public TrivyFixServiceImpl(@Value("${app.repository.owner}") String owner,
+                               @Value("${app.repository.name}") String repoName,
+                               @Value("${app.github.token}") String token) {
+        this.owner = owner;
+        this.repoName = repoName;
+        this.token = token;
+    }
 
     @Override
     public String fixAndCreatePR(MultipartFile trivyFile) throws Exception {
@@ -46,23 +57,27 @@ public class TrivyFixServiceImpl implements TrivyFixService{
             return "No fixable vulnerabilities found.";
         }
 
+        GitHub github = new GitHubBuilder()
+                .withOAuthToken(token)
+                .build();
+
+        GHRepository repository = github.getRepository(owner + "/" + repoName);
+
         // 2️⃣ Update pom.xml
-        boolean updated = updatePomFiles(fixes);
-        if (!updated) {
-            return "No pom.xml updates required.";
+        Model updated = updatePomFiles(repository, fixes);
+
+        createBranch(repository);
+        createCommit(repository, BRANCH_NAME, updated);
+        boolean prCreated = createPr(repository, BRANCH_NAME);
+        if (prCreated) {
+            return "PR Created";
+        } else {
+            return "PR Not Created";
         }
-
-        // 3️⃣ Git operations
-        git("checkout", "-b", BRANCH_NAME);
-        git("add", ".");
-        git("commit", "-m", PR_TITLE);
-        git("push", "--set-upstream", "origin", BRANCH_NAME);
-
-        // 4️⃣ Create PR
-        return createPullRequest();
     }
 
-    private Map<String, String> extractFixes(TrivyReport report) {
+
+    public Map<String, String> extractFixes(TrivyReport report) {
         Map<String, String> fixes = new HashMap<>();
 
         report.getResults().forEach(r -> {
@@ -78,92 +93,64 @@ public class TrivyFixServiceImpl implements TrivyFixService{
         return fixes;
     }
 
-    private boolean updatePomFiles(Map<String, String> fixes) throws Exception {
+    public Model updatePomFiles(GHRepository repository, Map<String, String> fixes) throws Exception {
 
         boolean updated = false;
 
-        List<Path> pomFiles = Files.walk(Path.of("."))
-                .filter(p -> p.getFileName().toString().equals("pom.xml"))
-                .toList();
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("GITHUB_TOKEN is not set");
+        }
 
-        for (Path pom : pomFiles) {
 
-            MavenXpp3Reader reader = new MavenXpp3Reader();
-            Model model = reader.read(new FileReader(pom.toFile()));
-            boolean pomUpdated = false;
+        GHContent pomContent = null;
+        try {
+            pomContent = repository.getFileContent(POM_XML);
+        } catch (GHFileNotFoundException ex) {
+            log.info("No pom.xml found");
+        }
 
-            for (Map.Entry<String, String> entry : fixes.entrySet()) {
+        MavenXpp3Reader reader = new MavenXpp3Reader();
+        String pomXml = pomContent.getContent(); // This is the full content of pom.xml
+        Model model = reader.read(new java.io.StringReader(pomXml));
+        boolean pomUpdated = false;
 
-                String[] cords = entry.getKey().split(":");
-                if (cords.length != 2) continue;
+        for (Map.Entry<String, String> entry : fixes.entrySet()) {
 
-                String groupId = cords[0];
-                String artifactId = cords[1];
-                String fixedVersion = entry.getValue();
+            String[] cords = entry.getKey().split(":");
+            if (cords.length != 2) continue;
 
-                // 1️⃣ Direct dependency
-                Optional<Dependency> direct = findDirectDependency(model, groupId, artifactId);
-                if (direct.isPresent()) {
-                    if (!fixedVersion.equals(direct.get().getVersion())) {
-                        direct.get().setVersion(fixedVersion);
-                        pomUpdated = true;
-                    }
-                    continue;
+            String groupId = cords[0];
+            String artifactId = cords[1];
+            String fixedVersion = entry.getValue();
+
+            // 1️⃣ Direct dependency
+            Optional<Dependency> direct = findDirectDependency(model, groupId, artifactId);
+            if (direct.isPresent()) {
+                if (!fixedVersion.equals(direct.get().getVersion())) {
+                    direct.get().setVersion(fixedVersion);
+                    pomUpdated = true;
                 }
-
-                // 2️⃣ dependencyManagement entry
-                Optional<Dependency> managed = findManagedDependency(model, groupId, artifactId);
-                if (managed.isPresent()) {
-                    if (!fixedVersion.equals(managed.get().getVersion())) {
-                        managed.get().setVersion(fixedVersion);
-                        pomUpdated = true;
-                    }
-                    continue;
-                }
-
-                // 3️⃣ Transitive → dependencyManagement override
-                addDependencyManagementOverride(model, groupId, artifactId, fixedVersion);
-                pomUpdated = true;
+                continue;
             }
 
-            if (pomUpdated) {
-                MavenXpp3Writer writer = new MavenXpp3Writer();
-                writer.write(new FileWriter(pom.toFile()), model);
-                updated = true;
+            // 2️⃣ dependencyManagement entry
+            Optional<Dependency> managed = findManagedDependency(model, groupId, artifactId);
+            if (managed.isPresent()) {
+                if (!fixedVersion.equals(managed.get().getVersion())) {
+                    managed.get().setVersion(fixedVersion);
+                    pomUpdated = true;
+                }
+                continue;
             }
+
+            // 3️⃣ Transitive → dependencyManagement override
+            addDependencyManagementOverride(model, groupId, artifactId, fixedVersion);
+            pomUpdated = true;
         }
-        return updated;
+        return model;
     }
 
-
-    private void git(String... args) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder();
-        pb.command(Stream.concat(Stream.of("git"), Arrays.stream(args)).toList());
-        pb.inheritIO();
-        Process p = pb.start();
-        if (p.waitFor() != 0) {
-            throw new RuntimeException("Git command failed");
-        }
-    }
-
-    private String createPullRequest() throws IOException {
-        String token = System.getenv("GITHUB_TOKEN");
-        String repo = System.getenv("GITHUB_REPOSITORY");
-
-        GitHub github = new GitHubBuilder().withOAuthToken(token).build();
-        GHRepository repository = github.getRepository(repo);
-
-        GHPullRequest pr = repository.createPullRequest(
-                PR_TITLE,
-                BRANCH_NAME,
-                "main",
-                PR_BODY
-        );
-
-        return pr.getHtmlUrl().toString();
-    }
-
-    private Optional<Dependency> findDirectDependency(
+    public Optional<Dependency> findDirectDependency(
             Model model, String groupId, String artifactId) {
 
         return model.getDependencies().stream()
@@ -172,7 +159,7 @@ public class TrivyFixServiceImpl implements TrivyFixService{
                 .findFirst();
     }
 
-    private Optional<Dependency> findManagedDependency(
+    public Optional<Dependency> findManagedDependency(
             Model model, String groupId, String artifactId) {
 
         if (model.getDependencyManagement() == null) {
@@ -187,7 +174,7 @@ public class TrivyFixServiceImpl implements TrivyFixService{
                 .findFirst();
     }
 
-    private void addDependencyManagementOverride(
+    public void addDependencyManagementOverride(
             Model model,
             String groupId,
             String artifactId,
@@ -202,6 +189,67 @@ public class TrivyFixServiceImpl implements TrivyFixService{
         dep.setArtifactId(artifactId);
         dep.setVersion(fixedVersion);
 
-        model.getDependencyManagement().addDependency(dep);
+        if (model.getDependencyManagement() != null) {
+            model.getDependencyManagement().addDependency(dep);
+        } else {
+            model.setDependencyManagement(new DependencyManagement());
+            model.getDependencyManagement().addDependency(dep);
+        }
+    }
+
+    public void createBranch(GHRepository repository) throws IOException {
+        String baseBranch = repository.getDefaultBranch();
+        String baseSha = repository.getRef("refs/heads/" + baseBranch)
+                .getObject()
+                .getSha();
+
+        try {
+            repository.getRef("refs/heads/" + BRANCH_NAME);
+        } catch (GHFileNotFoundException ex) {
+            repository.createRef("refs/heads/" + BRANCH_NAME, baseSha);
+        }
+    }
+
+    public void createCommit(GHRepository repository, String branchName, Model updatedPom) throws IOException {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        MavenXpp3Writer writer = new MavenXpp3Writer();
+        try {
+            writer.write(sw, updatedPom);
+        } catch (Exception e) {
+            throw new IOException("Failed to serialize updated pom.xml", e);
+        }
+        String updatedXml = sw.toString();
+
+        // Get current file SHA to update in place
+        String currentSha = repository.getFileContent(POM_XML).getSha();
+        repository.createContent()
+                .branch(branchName)
+                .path(POM_XML)
+                .content(updatedXml)
+                .message("Auto-fix Maven vulnerabilities detected by Trivy")
+                .sha(repository.getFileContent(POM_XML).getSha())
+                .commit();
+    }
+
+    public boolean createPr(GHRepository repository, String branchName) throws IOException {
+        boolean prCreated = false;
+        boolean prExists = !repository.queryPullRequests()
+                .state(GHIssueState.OPEN)
+                .head(owner + ":" + branchName)
+                .list()
+                .toList()
+                .isEmpty();
+
+        if (!prExists) {
+            repository.createPullRequest(
+                    PR_TITLE,
+                    branchName,
+                    "master",
+                    PR_BODY
+            );
+            prCreated = true;
+        }
+
+        return prCreated;
     }
 }
