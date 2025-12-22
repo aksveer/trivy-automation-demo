@@ -15,7 +15,7 @@ public interface TrivyFixService {
 
     Map<String, String> extractFixes(TrivyReport report);
 
-    Model updatePomFiles(GHRepository repository, Map<String, String> fixes) throws Exception;
+    String updatePomFiles(GHRepository repository, Map<String, String> fixes) throws Exception;
 
     Optional<Dependency> findDirectDependency(
             Model model, String groupId, String artifactId);
@@ -23,9 +23,10 @@ public interface TrivyFixService {
     Optional<Dependency> findManagedDependency(
             Model model, String groupId, String artifactId);
 
-    void addDependencyManagementOverride(
+    boolean addDependencyManagementOverride(
             Model model,
             String groupId,
             String artifactId,
-            String fixedVersion);
+            String fixedVersion,
+            boolean updated);
 }
