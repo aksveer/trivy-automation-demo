@@ -1,0 +1,45 @@
+version: 1
+
+name: Trivy Scan → Auto PR Service
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  TRIVY_REPORT_FILE: trivy-report.json
+  TRIVY_PR_SERVICE_URL: <TRIVY_AUTOMATION_SERVICE_URL>
+
+jobs:
+  trivy-scan:
+    runs-on: linux
+
+    steps:
+      - name: Checkout repository
+        uses: checkout
+
+      - name: Setup Java
+        uses: setup-java
+        with:
+          java-version: 17
+
+      - name: Build project (optional)
+        run: |
+          mvn -B -DskipTests clean package
+
+      - name: Run Trivy scan (JSON output)
+        run: |
+          trivy fs \
+            --format json \
+            --output $TRIVY_REPORT_FILE \
+            .
+
+      - name: Send Trivy report to Auto-PR service
+        run: |
+          curl -X POST "$TRIVY_PR_SERVICE_URL/api/v1/trivy/fix" \
+            -H "Content-Type: application/json" \
+            -d @"$TRIVY_REPORT_FILE"
