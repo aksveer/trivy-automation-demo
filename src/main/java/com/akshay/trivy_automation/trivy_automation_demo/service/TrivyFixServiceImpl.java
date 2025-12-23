@@ -58,14 +58,16 @@ public class TrivyFixServiceImpl implements TrivyFixService {
         GHRepository repository = github.getRepository(owner + "/" + repoName);
 
         String updatedPomXml = updatePomFiles(repository, fixes);
-
+        boolean isCommited = false;
         if (updatedPomXml != null) {
             createBranch(repository);
-            createCommit(repository, BRANCH_NAME, updatedPomXml);
-            boolean prCreated = createPr(repository, BRANCH_NAME);
-            return prCreated ? "PR Created" : "PR Not Created";
+            isCommited = createCommit(repository, BRANCH_NAME, updatedPomXml);
+            if (isCommited) {
+                boolean prCreated = createPr(repository, BRANCH_NAME);
+            } else {
+                return "PR already exist";
+            }
         }
-
         return "No fixable vulnerabilities found.";
     }
 
@@ -211,17 +213,24 @@ public class TrivyFixServiceImpl implements TrivyFixService {
         }
     }
 
-    public void createCommit(GHRepository repository, String branchName, String updatedPomXml) throws IOException {
+    public boolean createCommit(GHRepository repository, String branchName, String updatedPomXml) throws IOException {
 
         String currentSha = repository.getFileContent(POM_XML).getSha();
-
-        repository.createContent()
-                .branch(branchName)
-                .path(POM_XML)
-                .content(updatedPomXml)
-                .message("Auto-fix Maven vulnerabilities detected by Trivy")
-                .sha(currentSha)
-                .commit();
+        boolean isCommited = false;
+        try {
+            repository.createContent()
+                    .branch(branchName)
+                    .path(POM_XML)
+                    .content(updatedPomXml)
+                    .message("Auto-fix Maven vulnerabilities detected by Trivy")
+                    .sha(currentSha)
+                    .commit();
+            isCommited = true;
+            return isCommited;
+        } catch (Exception e) {
+            log.error("PR already exists: {}", e.fillInStackTrace());
+            return isCommited;
+        }
     }
 
     public boolean createPr(GHRepository repository, String branchName) throws IOException {
