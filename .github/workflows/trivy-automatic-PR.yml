@@ -110,14 +110,14 @@ jobs:
           echo "🧾 Sample vulnerabilities (first 20 lines):"
           head -n 20 trivy-vulnerabilities.json
           echo "🔢 Total vulnerabilities:"
-          jq '.Vulnerabilities | length' trivy-vulnerabilities.json
+          jq '.Results[].Vulnerabilities | length' trivy-vulnerabilities.json
 
       - name: Count vulnerabilities by severity
         run: |
-          echo "CRITICAL_COUNT=$(jq '[.Vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
-          echo "HIGH_COUNT=$(jq '[.Vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
-          echo "MEDIUM_COUNT=$(jq '[.Vulnerabilities[] | select(.Severity=="MEDIUM")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
-          echo "LOW_COUNT=$(jq '[.Vulnerabilities[] | select(.Severity=="LOW")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "MEDIUM_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="MEDIUM")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "LOW_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="LOW")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
 
       - name: Debug – Severity summary
         run: |
