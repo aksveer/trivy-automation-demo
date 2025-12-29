@@ -1,9 +1,8 @@
-name: Trivy Scan & Auto PR
+name: Trivy Scan & Auto PR (Debug)
 
 on:
   push:
     branches: [ "master" ]
-  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -17,14 +16,28 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Debug – Show repo structure
+        run: |
+          echo "📂 Repository root:"
+          ls -la
+          echo "📂 .github folder:"
+          ls -la .github || true
+
       - name: Install Trivy
         run: |
+          set -x
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sudo sh -s -- -b /usr/local/bin
           trivy --version
 
+      - name: Debug – Verify Trivy binary
+        run: |
+          which trivy
+          trivy --help | head -n 20
+
       - name: Run Trivy scan (JSON)
         run: |
+          set -x
           trivy fs . \
             --scanners vuln \
             --severity LOW,MEDIUM,HIGH,CRITICAL \
@@ -32,8 +45,26 @@ jobs:
             --output trivy-full-report.json \
             --exit-code 0
 
+      - name: Debug – Verify Trivy output file
+        run: |
+          echo "📄 Files after scan:"
+          ls -la
+          echo "📏 Size of trivy-full-report.json:"
+          stat trivy-full-report.json
+          echo "🧾 First 40 lines of report:"
+          head -n 40 trivy-full-report.json
+
+      - name: Debug – Validate JSON structure
+        run: |
+          echo "🔍 Checking JSON validity"
+          jq '.' trivy-full-report.json > /dev/null
+          echo "✅ JSON is valid"
+          echo "🔍 Top-level keys:"
+          jq 'keys' trivy-full-report.json
+
       - name: Extract vulnerabilities only
         run: |
+          set -x
           jq '{
             generatedAt: now | todate,
             vulnerabilities: [
@@ -43,7 +74,33 @@ jobs:
             ]
           }' trivy-full-report.json > trivy-vulnerabilities.json
 
-      - name: Count vulnerabilities
+      - name: Debug – Inspect extracted vulnerabilities
+        run: |
+          echo "📏 Extracted file size:"
+          stat trivy-vulnerabilities.json
+          echo "🧾 Sample vulnerabilities (first 20 lines):"
+          head -n 20 trivy-vulnerabilities.json
+          echo "🔢 Total vulnerabilities:"
+          jq '.vulnerabilities | length' trivy-vulnerabilities.json
+
+      - name: Count vulnerabilities by severity
         run: |
           echo "CRITICAL_COUNT=$(jq '[.vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
           echo "HIGH_COUNT=$(jq '[.vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "MEDIUM_COUNT=$(jq '[.vulnerabilities[] | select(.Severity=="MEDIUM")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "LOW_COUNT=$(jq '[.vulnerabilities[] | select(.Severity=="LOW")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+
+      - name: Debug – Severity summary
+        run: |
+          echo "🚨 CRITICAL: $CRITICAL_COUNT"
+          echo "🔥 HIGH: $HIGH_COUNT"
+          echo "⚠️ MEDIUM: $MEDIUM_COUNT"
+          echo "ℹ️ LOW: $LOW_COUNT"
+
+      - name: Debug – API trigger condition
+        run: |
+          if [ "$CRITICAL_COUNT" != "0" ] || [ "$HIGH_COUNT" != "0" ]; then
+            echo "✅ Auto PR API WILL be triggered"
+          else
+            echo "⛔ Auto PR API will NOT be triggered"
+          fi
