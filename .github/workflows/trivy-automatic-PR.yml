@@ -15,7 +15,7 @@ jobs:
 
     env:
       GITHUB_TOKEN: ${{ secrets.TOKEN_PR }}
-      GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+      GITHUB_REPOSITORY_NAME: trivy-automation-demo
       GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
 
     steps:
