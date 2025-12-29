@@ -137,4 +137,4 @@ jobs:
         run: |
           curl -X POST http://localhost:8080/api/v1/trivy/fix \
             -H "Content-Type: application/json" \
-            -d @trivy-vulnerabilities.json
+            -F "file=@trivy-report.json"
