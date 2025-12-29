@@ -1,0 +1,48 @@
+name: Trivy Scan & Auto PR
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          version: latest
+
+      - name: Run Trivy scan (JSON)
+        run: |
+          trivy fs . \
+            --scanners vuln \
+            --severity LOW,MEDIUM,HIGH,CRITICAL \
+            --format json \
+            --output trivy-full-report.json \
+            --exit-code 0
+
+      - name: Extract vulnerabilities only
+        run: |
+          jq '{
+            generatedAt: now | todate,
+            vulnerabilities: [
+              .Results[]
+              | select(.Vulnerabilities != null)
+              | .Vulnerabilities[]
+            ]
+          }' trivy-full-report.json > trivy-vulnerabilities.json
+
+      - name: Count vulnerabilities
+        run: |
+          echo "CRITICAL_COUNT=$(jq '[.vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          echo "HIGH_COUNT=$(jq '[.vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
