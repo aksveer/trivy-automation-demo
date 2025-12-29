@@ -2,7 +2,7 @@ name: Trivy Scan & Auto PR
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
   workflow_dispatch:
 
@@ -19,10 +19,9 @@ jobs:
 
       - name: Install Trivy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
-          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.1_Linux-64bit.deb
-          sudo dpkg -i trivy_0.50.1_Linux-64bit.deb
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
+          trivy --version
 
       - name: Run Trivy scan (JSON)
         run: |
