@@ -10,11 +10,39 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.TOKEN_PR }}
+      GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+      GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build Spring Boot service
+        run: |
+          ./mvnw clean package -DskipTests
+
+      - name: Start Auto PR Service
+        run: |
+          nohup java -jar target/*.jar > service.log 2>&1 &
+          echo "Waiting for service to start..."
+          sleep 15
+
+      - name: Debug – Verify service is running
+        run: |
+          curl -s http://localhost:8080/actuator/health || true
+          echo "---- Service Logs ----"
+          tail -n 50 service.log
 
       - name: Debug – Show repo structure
         run: |
@@ -66,12 +94,13 @@ jobs:
         run: |
           set -x
           jq '{
-            generatedAt: now | todate,
-            vulnerabilities: [
+            Results: [
               .Results[]
-              | select(.Vulnerabilities != null)
-              | .Vulnerabilities[]
-            ]
+            | select(.Vulnerabilities != null and (.Vulnerabilities | length > 0))
+            | {
+                Vulnerabilities: .Vulnerabilities
+              }
+          ]
           }' trivy-full-report.json > trivy-vulnerabilities.json
 
       - name: Debug – Inspect extracted vulnerabilities
@@ -104,3 +133,8 @@ jobs:
           else
             echo "⛔ Auto PR API will NOT be triggered"
           fi
+      - name: Call local Auto PR Service
+        run: |
+          curl -X POST http://localhost:8080/api/v1/trivy/fix \
+            -H "Content-Type: application/json" \
+            -d @trivy-vulnerabilities.json

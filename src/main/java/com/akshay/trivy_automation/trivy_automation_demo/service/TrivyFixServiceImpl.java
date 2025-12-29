@@ -64,6 +64,7 @@ public class TrivyFixServiceImpl implements TrivyFixService {
             isCommited = createCommit(repository, BRANCH_NAME, updatedPomXml);
             if (isCommited) {
                 boolean prCreated = createPr(repository, BRANCH_NAME);
+                return "PR Created";
             } else {
                 return "PR already exist";
             }
@@ -79,10 +80,10 @@ public class TrivyFixServiceImpl implements TrivyFixService {
             if (r.getVulnerabilities() == null) return;
 
             r.getVulnerabilities().stream()
-                    .filter(v -> "maven".equalsIgnoreCase(v.getPkgType()))
+                    //.filter(v -> "maven".equalsIgnoreCase(v.getPkgType()))
                     .filter(v -> SEVERITIES.contains(v.getSeverity()))
                     .filter(v -> v.getFixedVersion() != null)
-                    .forEach(v -> fixes.put(v.getPkgPath(), v.getFixedVersion()));
+                    .forEach(v -> fixes.put(v.getPkgName(), v.getFixedVersion()));
         });
 
         return fixes;
@@ -121,7 +122,7 @@ public class TrivyFixServiceImpl implements TrivyFixService {
 
             String groupId = cords[0];
             String artifactId = cords[1];
-            String fixedVersion = entry.getValue();
+            String fixedVersion = entry.getValue().split(",")[0];
 
             // 1) Direct dependency
             Optional<Dependency> direct = findDirectDependency(model, groupId, artifactId);
@@ -436,7 +437,8 @@ public class TrivyFixServiceImpl implements TrivyFixService {
                 String toInsert =
                         nl + childIndent + "<dependencies>" +
                                 nl + childIndent + detectIndentUnit(dmBlock) + buildDependencyBlock(dmBlock, groupId, artifactId, version, childIndent + detectIndentUnit(dmBlock)) +
-                                nl + childIndent + "</dependencies>" + nl + baseIndent;
+                                nl + childIndent +
+                                nl + "</dependencies>" + nl + baseIndent;
 
                 return dmBlock.substring(0, dmOpenEnd + 1) + toInsert + dmBlock.substring(dmOpenEnd + 1);
             }
