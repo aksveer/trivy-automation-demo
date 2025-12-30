@@ -28,22 +28,6 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Build Spring Boot service
-        run: |
-          ./mvnw clean package -DskipTests
-
-      - name: Start Auto PR Service
-        run: |
-          nohup java -jar target/*.jar > service.log 2>&1 &
-          echo "Waiting for service to start..."
-          sleep 15
-
-      - name: Debug – Verify service is running
-        run: |
-          curl -s http://localhost:8080/actuator/health || true
-          echo "---- Service Logs ----"
-          tail -n 50 service.log
-
       - name: Debug – Show repo structure
         run: |
           echo "📂 Repository root:"
@@ -133,10 +117,27 @@ jobs:
           else
             echo "⛔ Auto PR API will NOT be triggered"
           fi
+
       - name: Check file path
         run: |
           echo "File path: $(pwd)"
           echo "File path: $(ls -la)"
+
+      - name: Build Spring Boot service
+        run: |
+          ./mvnw clean package -DskipTests
+
+      - name: Start Auto PR Service
+        run: |
+          nohup java -jar target/*.jar > service.log 2>&1 &
+          echo "Waiting for service to start..."
+          sleep 15
+
+      - name: Debug – Verify service is running
+        run: |
+          curl -s http://localhost:8080/actuator/health || true
+          echo "---- Service Logs ----"
+          tail -n 50 service.log
 
       - name: Call local Auto PR Service
         run: |
