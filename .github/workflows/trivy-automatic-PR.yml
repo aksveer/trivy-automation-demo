@@ -97,11 +97,18 @@ jobs:
           jq '.Results[].Vulnerabilities | length' trivy-vulnerabilities.json
 
       - name: Count vulnerabilities by severity
+        id: vuln_count
         run: |
           echo "CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
           echo "HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
           echo "MEDIUM_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="MEDIUM")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
           echo "LOW_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="LOW")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "should_trigger=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_trigger=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Debug – Severity summary
         run: |
@@ -124,22 +131,26 @@ jobs:
           echo "File path: $(ls -la)"
 
       - name: Build Spring Boot service
+        if: steps.vuln_count.outputs.should_trigger == 'true'
         run: |
           ./mvnw clean package -DskipTests
 
       - name: Start Auto PR Service
+        if: steps.vuln_count.outputs.should_trigger == 'true'
         run: |
           nohup java -jar target/*.jar > service.log 2>&1 &
           echo "Waiting for service to start..."
           sleep 15
 
       - name: Debug – Verify service is running
+        if: steps.vuln_count.outputs.should_trigger == 'true'
         run: |
           curl -s http://localhost:8080/actuator/health || true
           echo "---- Service Logs ----"
           tail -n 50 service.log
 
       - name: Call local Auto PR Service
+        if: steps.vuln_count.outputs.should_trigger == 'true'
         run: |
           curl -X POST http://localhost:8080/api/v1/trivy/fix \
             -F "file=@trivy-vulnerabilities.json"
