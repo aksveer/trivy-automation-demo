@@ -104,7 +104,7 @@ jobs:
           echo "MEDIUM_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="MEDIUM")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
           echo "LOW_COUNT=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="LOW")] | length' trivy-vulnerabilities.json)" >> $GITHUB_ENV
           
-          if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+          if [ "$CRITICAL_COUNT" != "0" ] || [ "$HIGH_COUNT" != "0" ]; then
             echo "should_trigger=true" >> $GITHUB_OUTPUT
           else
             echo "should_trigger=false" >> $GITHUB_OUTPUT
