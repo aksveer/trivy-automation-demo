@@ -116,6 +116,7 @@ jobs:
           echo "🔥 HIGH: $HIGH_COUNT"
           echo "⚠️ MEDIUM: $MEDIUM_COUNT"
           echo "ℹ️ LOW: $LOW_COUNT"
+          echo "should_trigger=${{ steps.vuln_count.outputs.should_trigger }}"
 
       - name: Debug – API trigger condition
         run: |
@@ -131,26 +132,26 @@ jobs:
           echo "File path: $(ls -la)"
 
       - name: Build Spring Boot service
-        if: steps.vuln_count.outputs.should_trigger == 'true'
+        if: ${{ steps.vuln_count.outputs.should_trigger == 'true' }}
         run: |
           ./mvnw clean package -DskipTests
 
       - name: Start Auto PR Service
-        if: steps.vuln_count.outputs.should_trigger == 'true'
+        if: ${{ steps.vuln_count.outputs.should_trigger == 'true' }}
         run: |
           nohup java -jar target/*.jar > service.log 2>&1 &
           echo "Waiting for service to start..."
           sleep 15
 
       - name: Debug – Verify service is running
-        if: steps.vuln_count.outputs.should_trigger == 'true'
+        if: ${{ steps.vuln_count.outputs.should_trigger == 'true' }}
         run: |
           curl -s http://localhost:8080/actuator/health || true
           echo "---- Service Logs ----"
           tail -n 50 service.log
 
       - name: Call local Auto PR Service
-        if: steps.vuln_count.outputs.should_trigger == 'true'
+        if: ${{ steps.vuln_count.outputs.should_trigger == 'true' }}
         run: |
           curl -X POST http://localhost:8080/api/v1/trivy/fix \
             -F "file=@trivy-vulnerabilities.json"
