@@ -29,7 +29,16 @@
 	<properties>
 		<java.version>17</java.version>
 	</properties>
-	<dependencies>
+		<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>ch.qos.logback</groupId>
+				<artifactId>logback-core</artifactId>
+				<version>1.5.19</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
